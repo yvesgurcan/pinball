@@ -1,0 +1,153 @@
+<script src="https://zimjs.org/cdn/1.2.1/createjs_min.js"></script>
+<script src="https://zimjs.org/cdn/10.5.5/zim.js"></script>
+<script src="https://d309knd7es5f10.cloudfront.net/codepen/icon4.js"></script>
+<script src="https://zimjs.org/cdn/Box2dWeb-2.1.a.3.min.js"></script>
+<script src="https://zimjs.org/cdn/physics_2.0.js"></script>
+<script>
+// Thanks K-T for the cool idea at https://codepen.io/K-T/pen/eYOPpwd
+// The ZIM code is 21% the size of the K-T code
+// but that is because physics and emitters are inside ZIM (lots of code!) 
+// where K-T coded these amazingly from scratch!
+
+const frame = new Frame("fit", 1024, 768, black, darker);
+frame.on("ready", ()=>{ // ES6 Arrow Function - similar to function(){}
+		zog("ready from ZIM Frame"); // logs in console (F12 - choose console)
+
+		// often need below - so consider it part of the template
+		let stage = frame.stage;
+		let stageW = frame.width;
+		let stageH = frame.height;
+
+		// REFERENCES for ZIM at http://zimjs.com
+		// see http://zimjs.com/learn.html for video and code tutorials
+		// see http://zimjs.com/docs.html for documentation
+		// see https://www.youtube.com/watch?v=pUjHFptXspM for INTRO to ZIM
+		// see https://www.youtube.com/watch?v=v7OT0YrDWiY for INTRO to CODE
+		// see https://zimjs.com/physics for physics examples
+
+		// CODE HERE
+	
+		// create a new Physics world - requires Box2D and the ZIM Physics helper js files
+		// reduce regular gravity to give the ball a little float and set no borders 
+		// later on any ball that goes off stage will be placed up at the top
+		const physics = new Physics(2.5, "none");
+
+		// spacing, radius and start alpha for "pins"
+		const sH = 105;
+		const sV = 90
+		const r = 18;
+		const startAlpha = .1;
+
+		// we use colors to randomize the emitter and colorSeries to set the pin colors
+		const colors = [purple, pink, blue, green, yellow, orange, red];
+		const colorSeries = series(colors);
+
+		// make two sets of pins and offset them to get the diagonal positioning 
+		// we could do this in one tile then loop through the tile and offest odd rows 
+		const pins = new Tile(new Circle(r, colorSeries).alp(startAlpha), 7, 5, sH, sV)
+		.center()
+		.mov(-(sH+r*2)/4,(sV+r*2)/4); // offsetting each tile by half the half radius+spacing
+		// physics objects must be in a container that has its x and y at 0, 0 (and no scale)
+		// so use addTo() which defaults to adding to the stage and keeps the same visual position 
+		// this is a feature of addTo() as normally, the x and y property would not change from one coordinate system to another 
+		// meaning the position would appear to change if moved from one coordinate system to another
+		// if the coordinate systems have a different starting position (the tile and stage start at different positions)
+		// if automatic positioning is not desired there is a localToLocal parameter of addTo() that can be set to false
+		// we loop through pins to move the pins directly on the stage and add the physics
+		pins.loop(pin=>{						
+			pin.addTo().addPhysics({dynamic:false}); // make pins stationary
+		}, true); // loop backwards any time removing objects from the container in a loop (very important!) 
+
+		const pins2 = pins.clone().center().mov((sH+r*2)/4, -(sV+r*2)/4);
+		pins2.loop(pin=>{pin.addTo().addPhysics({dynamic:false});}, true); // same thing as above
+
+		// create an array to hold balls to bounce around in pins
+		// this lets us easily change the number of balls - try 5 below for instance...
+		const balls = [];
+		loop(2, ()=>{
+			let ball = new Circle(12, white)
+				.loc(stageW/3+rand(stageW/3), -30) // middle third the width 
+				.addPhysics({restitution:1}) // make it bouncy
+				.impulse(rand(6)-3) // add a force to one side or the other
+				.contact(obj=>{ // when the ball hits an object, obj
+					if (obj.type == "Ball") return; // not a pin
+					let pin = obj; // just for ease of understanding the code
+					ball.animate({color:pin.color}, 500); // animate ball color to color of pin
+					ball.impulse(rand(-2,2),rand(1,2)); // bounce the ball a bit more (optional)
+					if (pin.active) return; // don't activate the pin if already active
+					pin.active = true; // set the pin as active (our own property) until animation done
+					pin.alp(1).animate({
+						wait:500,
+						waitedCall:()=>{ // once waited spurt the emitter at the pin position
+							// ball.emitter.loc(pin).spurt(20);
+						},
+						props:{alpha:startAlpha}, // fade out over 1500 ms
+						time:1500,
+						call:()=>{pin.active = false;} // when animation done, set active to false
+					});
+				});	
+			ball.type = "Ball";
+			// create an Emitter and store it on the ball for easy access in the animation above
+			ball.emitter = new Emitter({
+				obj:makeStar, // ZIM VEE value or PICK - lets you pass a function that will be evaluated later - with random colors
+				random:{rotation:{min:0, max:360}}, // start at random rotations for star
+				num:2, // send two at once
+				force:1.5,
+				gravity:7,
+				life:1800,
+				decayTime:1800,
+				animation:{props:{rotation:[-360,360]}, ease:"linear", loop:true}, // rotate one way or the other
+				startPaused:true, // wait until the emitter is spurted when the ball contacts a pin
+			}).addTo();
+			balls.push(ball); // add ball to the array
+		});
+
+		function makeStar() { // each particle calls this function - to randomize the colors
+			let star = new Shape(-20,-20,40,40);
+			star.graphics.f(shuffle(colors)[0]).dp(0,0,18,6,rand(.5,.8));
+			return star;
+		}
+
+		// add a constant check to see if balls are out of bounds 
+		// if so, start them at the top again - note, we position the physics object 
+		// the ZIM object will map to the physics object position 
+		// this does not work the other way around - the physics object will not move to the ZIM object 
+		// well... it does move to the ZIM object at the start but that is the only time
+		Ticker.add(()=>{
+			// check each ball so loop through the balls container
+			loop(balls, ball=>{
+				if (ball.y > stageH + 60 || ball.x < -10 || ball.y > stageW + 10) {
+					ball.body.y = -20;
+					ball.body.x = stageW/3+rand(stageW/3);
+					ball.impulse(rand(6)-3);
+				}
+			});			
+		});
+
+		// DOCS FOR ITEMS USED
+		// https://zimjs.com/docs.html?item=Frame
+		// https://zimjs.com/docs.html?item=Shape
+		// https://zimjs.com/docs.html?item=Circle
+		// https://zimjs.com/docs.html?item=Tile
+		// https://zimjs.com/docs.html?item=addPhysics
+		// https://zimjs.com/docs.html?item=animate
+		// https://zimjs.com/docs.html?item=loop
+		// https://zimjs.com/docs.html?item=loc
+		// https://zimjs.com/docs.html?item=mov
+		// https://zimjs.com/docs.html?item=alp
+		// https://zimjs.com/docs.html?item=addTo
+		// https://zimjs.com/docs.html?item=center
+		// https://zimjs.com/docs.html?item=Emitter
+		// https://zimjs.com/docs.html?item=Physics
+		// https://zimjs.com/docs.html?item=series
+		// https://zimjs.com/docs.html?item=zog
+		// https://zimjs.com/docs.html?item=Ticker
+
+		// FOOTER
+		// call remote script to make ZIM Foundation for Creative Coding icon
+		createIcon(6,20);
+		const message = createGreet(74,48);
+		timeout(2000, ()=>{message.removeFrom()})
+
+}); // end of ready
+</script>
